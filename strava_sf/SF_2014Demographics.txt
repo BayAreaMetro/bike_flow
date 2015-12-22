@@ -1,0 +1,34 @@
+SF_2014Metro Demographics
+Date Run: Tue Mar  3 12:58:33 2015
+
+
+County Name: SAN FRANCISCO COUNTY
+Athlete ID Count: 28018
+Activity Count: 449874
+Average Distance: 28270
+Median Distance: 18856
+Average Time: 6401
+Median Time: 4149
+Male Count: 21831
+Male Count Under 25: 1026
+Male Count 25 - 34: 7051
+Male Count 35 - 44: 5695
+Male Count 45 - 54: 3864
+Male Count 55 - 64: 1239
+Male Count 65 - 74: 249
+Male Count 75 - 84: 26
+Male Count 85 - 94: 11
+Male Count No Bday: 2655
+Female Count: 4553
+Female Count Under 25: 197
+Female Count 25 - 34: 1902
+Female Count 35 - 44: 920
+Female Count 45 - 54: 485
+Female Count 55 - 64: 217
+Female Count 65 - 74: 26
+Female Count 75 - 84: 0
+Female Count 85 - 94: 1
+Female Count No Bday: 798
+Blank Gender Count: 1634
+Commute Counts: 210240
+******************************************************************************************************
