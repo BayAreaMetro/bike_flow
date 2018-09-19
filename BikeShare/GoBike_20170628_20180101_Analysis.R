@@ -1,100 +1,100 @@
 ##################################################################################################
-### Script to implement decomposition analysis on MTC survey data
-### Author: Shimon Israel, February 2018, based on Binny M Paul, binny.paul@rsginc.com, April 2016
+### Script to analyze Ford Go Bike data from launch (6/28/17) to 1/1/2018
+### Author: Shimon Israel, February 2018
 ##################################################################################################
 
 suppressMessages(library(dplyr))
+library(sf)
 
-# User Inputs
-OBS_Dir <- "M:/Data/OnBoard/Data and Reports/_data Standardized/decomposition"
-Legacy <- "M:/Data/OnBoard/Data and Reports/_data Standardized/survey_legacy.RData"
-load(Legacy)
+DATA_LOCATION <- "M:/Data/BikeShare"
+INPUT <- paste(DATA_LOCATION,"Ford_GoBike_tripdata_20170628_20180101_with_bikeshareforall.csv", sep="/")
+data <- read.csv(INPUT)%>% mutate(
+  start_lat=as.numeric(sapply(strsplit(as.character(start_location),','),function(x) x[1])),
+  start_lon=as.numeric(sapply(strsplit(as.character(start_location),','),function(x) x[2])),
+  end_lat=as.numeric(sapply(strsplit(as.character(end_location),','),function(x) x[1])),
+  end_lon=as.numeric(sapply(strsplit(as.character(end_location),','),function(x) x[2])),
+  trips=1)
 
-setwd(OBS_Dir)
-
-# Read Files
-load("survey_decomposition.RData")
-
-# Rename operators so everything matches and filter weekday records only
-
-OBS <- survey.decomposition %>% mutate(
-  operator=ifelse(operator=="SF Muni","MUNI",operator),
-  operator=ifelse(operator=="Caltrain","CALTRAIN",operator),
-  operator=ifelse(operator=="Napa Vine","NAPA VINE",operator),
-  operator=ifelse(operator=="Napa Vine","NAPA VINE",operator)) %>%
-  filter(weekpart=="WEEKDAY") # Weekday records only 
-
-#Fix missing values
-#OBS$TRANSFERS_FROM_CODE[is.na(OBS$TRANSFERS_FROM_CODE)] <- 0 #missing for dummy records
-#OBS$TRANSFERS_TO_CODE[is.na(OBS$TRANSFERS_TO_CODE)] <- 0 #missing for dummy records
-
-# Decomposition Analysis
-DA_Table <- data.frame(unique(OBS$operator))
-colnames(DA_Table) <- c("operator")
-DA_Table$SURVEYED_RESP <- 0
-DA_Table$TRNSF_FROM_RESP <- 0
-DA_Table$TRNSF_TO_RESP <- 0
-
-DA_Table$T1 <- 0
-DA_Table$T2 <- 0
-DA_Table$T3 <- 0
-DA_Table$T4 <- 0
-
-DA_Table$F1 <- 0
-DA_Table$F2 <- 0
-DA_Table$F3 <- 0
-DA_Table$F4 <- 0
+data_head <- head(data)
 
 
-temp <- aggregate(trip_weight~operator, data = OBS, FUN = sum)
-DA_Table$SURVEYED_RESP <- temp$trip_weight[match(DA_Table$operator, temp$operator)]
+# Create station ID table
 
-temp <- aggregate(trip_weight~first_before_operator, data = OBS[OBS$first_before_operator %in% DA_Table$operator,], FUN = sum)
-DA_Table$F1 <- temp$trip_weight[match(DA_Table$operator, temp$first_before_operator)]
+stations <- data %>%
+  group_by(start_station_id,start_station_name,start_location) %>%
+  summarize(total=n()) %>% 
+  ungroup()%>% mutate(
+    lat=as.numeric(sapply(strsplit(as.character(start_location),','),function(x) x[1])),
+    lon=as.numeric(sapply(strsplit(as.character(start_location),','),function(x) x[2])),
+    station_id=start_station_id,
+    station_name=start_station_name) %>%
+  select(station_name,station_id,lat,lon)
 
-temp <- aggregate(trip_weight~second_before_operator, data = OBS[OBS$second_before_operator %in% DA_Table$operator,], FUN = sum)
-DA_Table$F2 <- temp$trip_weight[match(DA_Table$operator, temp$second_before_operator)]
+# Distances
 
-temp <- aggregate(trip_weight~third_before_operator, data = OBS[OBS$third_before_operator %in% DA_Table$operator,], FUN = sum)
-DA_Table$F3 <- temp$trip_weight[match(DA_Table$operator, temp$third_before_operator)]
-
-#temp <- aggregate(trip_weight~fourth_before_operator, data = OBS[OBS$fourth_before_operator %in% DA_Table$operator,], FUN = sum)
-#DA_Table$F4 <- temp$trip_weight[match(DA_Table$operator, temp$fourth_before_operator)]
-
-temp <- aggregate(trip_weight~first_after_operator, data = OBS[OBS$first_after_operator %in% DA_Table$operator,], FUN = sum)
-DA_Table$T1 <- temp$trip_weight[match(DA_Table$operator, temp$first_after_operator)]
-
-temp <- aggregate(trip_weight~second_after_operator, data = OBS[OBS$second_after_operator %in% DA_Table$operator,], FUN = sum)
-DA_Table$T2 <- temp$trip_weight[match(DA_Table$operator, temp$second_after_operator)]
-
-temp <- aggregate(trip_weight~third_after_operator, data = OBS[OBS$third_after_operator %in% DA_Table$operator,], FUN = sum)
-DA_Table$T3 <- temp$trip_weight[match(DA_Table$operator, temp$third_after_operator)]
-
-#temp <- aggregate(trip_weight~fourth_after_operator, data = OBS[OBS$fourth_after_operator %in% DA_Table$operator,], FUN = sum)
-#DA_Table$T4 <- temp$trip_weight[match(DA_Table$operator, temp$fourth_after_operator)]
-
-DA_Table[is.na(DA_Table)] <- 0
-
-DA_Table$TRNSF_FROM_RESP <- DA_Table$F1 + DA_Table$F2 + DA_Table$F3 + DA_Table$F4
-
-DA_Table$TRNSF_TO_RESP <- DA_Table$T1 + DA_Table$T2 + DA_Table$T3 + DA_Table$T4
-
-DA_Table <- DA_Table[,c("operator", "SURVEYED_RESP", "TRNSF_FROM_RESP", "TRNSF_TO_RESP")]
-
-DA_Table$operator <- as.character(DA_Table$operator)
+# Calculate approximate distance in miles between two points
+earth.dist <- function (long1, lat1, long2, lat2){
+  rad <- pi/180
+  a1 <- lat1 * rad
+  a2 <- long1 * rad
+  b1 <- lat2 * rad
+  b2 <- long2 * rad
+  dlon <- b2 - a2
+  dlat <- b1 - a1
+  a <- (sin(dlat/2))^2 + cos(a1) * cos(b1) * (sin(dlon/2))^2
+  c <- 2 * atan2(sqrt(a), sqrt(1 - a))
+  R <- 6378.145
+  d <- R * c
+  d <- d*0.621371
+  return(d)
+}
 
 
-# Process unlinked boardings
+distance <- data %>% mutate(
+  distance=earth.dist(start_lon,start_lat,end_lon,end_lat))
 
-Boardings <- aggregate(weight~operator, data = OBS, FUN = sum)
+# Me
 
-DA_Table$OBSERVED <- Boardings$weight[match(DA_Table$operator, Boardings$operator)]
+me <- distance %>%
+  filter(start_station_name=="Emeryville Town Hall" & member_birth_year==1970)
 
-DA_Table <- DA_Table[order(DA_Table$operator),]
-write.csv(DA_Table, paste(OBS_Dir, "DecompositionAnalysis.csv", sep = "/"), row.names = FALSE)
+# Trips by gender and distance
+
+gender <- distance %>% group_by(member_gender) %>%
+  summarize(distance=mean(distance))
+
+# Mean trip time by user type
+
+mean_time <- data %>% group_by(user_type) %>%
+  summarize(num_trips=n(),mean_minutes=mean(duration_sec*trips)/60)
 
 
-#View(OBS[,c("ID","FROM1", "FROM2", "FROM3", "FROM4", "operator", 
-#            "TO1", "TO2", "TO3", "TO4", "TRANSFERS_FROM_CODE", "TRANSFERS_TO_CODE", 
-#            "UNLINKED_WEIGHT_FACTOR", "trip_weight")])
+# Number trips by trip origins and destinations
+
+trip_origins <- data %>% group_by(start_station_name, start_lat, start_lon) %>%
+  summarize(trip_origins=sum(trips)) %>%
+  arrange(desc(trip_origins))
+names(trip_origins)[1] <- "station_name"
+trip_origins <- ungroup(trip_origins)
+  
+
+trip_ends <- data %>% group_by(end_station_name) %>%
+  summarize(trip_ends=sum(trips)) %>%
+  arrange(desc(trip_ends))
+names(trip_ends)[1] <- "station_name"
+
+trip_locations <- left_join(trip_origins,trip_ends, by="station_name") %>%
+  rename(lat=start_lat, lon=start_lon)
+
+# Group by origin and destination stations
+
+origin_destination <- data %>%
+  group_by(start_station_name,end_station_name) %>%
+  summarize(total_trips = sum(trips)) %>%
+  arrange(desc(total_trips))
+
+# Output summary
+
+write.csv(trip_locations,paste(DATA_LOCATION,"Trip_Locations.csv",sep="/"))
+
 
